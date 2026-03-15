@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>뉴턴 제3법칙 - 개별 에너지 분석</title>
+    <style>
+        :root { --a-color: #ef4444; --b-color: #2563eb; --bg: #f8fafc; }
+        body { font-family: 'Pretendard', sans-serif; background: var(--bg); display: flex; flex-direction: column; align-items: center; padding: 20px; margin: 0; }
+        .container { max-width: 1200px; width: 95%; display: flex; flex-direction: column; gap: 20px; }
+        .panel { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .setup-box { padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0; }
+        .setup-a { border-left: 5px solid var(--a-color); }
+        .setup-b { border-left: 5px solid var(--b-color); }
+        .input-group { margin-bottom: 10px; }
+        label { font-size: 0.8rem; font-weight: bold; display: block; margin-bottom: 4px; }
+        input { width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 4px; box-sizing: border-box; }
+        canvas { background: white; border-radius: 12px; border: 2px solid #334155; width: 100%; height: 300px; }
+        
+        /* 통계 영역 디자인 개선 */
+        .stats-container { display: grid; grid-template-columns: 1.5fr 1fr 1.5fr; gap: 15px; width: 100%; }
+        .stat-card { background: #334155; color: white; padding: 15px; border-radius: 8px; text-align: center; display: flex; flex-direction: column; gap: 5px; }
+        .stat-label { font-size: 0.8rem; color: #cbd5e1; }
+        .stat-value { font-size: 1.2rem; font-weight: bold; }
+        .energy-a { border-bottom: 4px solid var(--a-color); }
+        .energy-b { border-bottom: 4px solid var(--b-color); }
+        .energy-total { border-bottom: 4px solid #10b981; }
+
+        .btn-group { grid-column: span 2; display: flex; gap: 10px; }
+        button { flex: 1; padding: 12px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s; font-size: 1rem; }
+        .btn-run { background: #10b981; color: white; }
+        .btn-reset { background: #64748b; color: white; }
+    </style>
+</head>
+<body>
+
+    <h2 style="margin-top: 0;">⚖️ 작용-반작용 시뮬레이터</h2>
+
+    <div class="container">
+        <div class="panel">
+            <div class="setup-box setup-a">
+                <h3>물체 A (빨강)</h3>
+                <div class="input-group"><label>질량 (kg)</label><input type="number" id="massA" value="10"></div>
+                <div class="input-group"><label>속도 (m/s)</label><input type="number" id="veloA" value="4"></div>
+            </div>
+            <div class="setup-box setup-b">
+                <h3>물체 B (파랑)</h3>
+                <div class="input-group"><label>질량 (kg)</label><input type="number" id="massB" value="5"></div>
+                <div class="input-group"><label>속도 (m/s)</label><input type="number" id="veloB" value="-2"></div>
+            </div>
+            <div class="btn-group">
+                <button class="btn-run" onclick="startSim()">실험 시작</button>
+                <button class="btn-reset" onclick="resetSim()">초기화</button>
+            </div>
+        </div>
+
+        <div class="stats-container">
+            <div class="stat-card energy-a">
+                <span class="stat-label">A 운동에너지 ($E_{kA}$)</span>
+                <span id="ekA" class="stat-value">0</span><span style="font-size: 0.8rem">J</span>
+                <span class="stat-label" style="margin-top:5px;">속도: <span id="curVA">0</span> m/s</span>
+            </div>
+            <div class="stat-card energy-total">
+                <span class="stat-label">총 운동에너지 합</span>
+                <span id="totalEk" class="stat-value" style="color: #10b981;">0</span><span style="font-size: 0.8rem; color: #10b981;">J</span>
+                <span class="stat-label" style="margin-top:5px;">상태: <span id="status">대기 중</span></span>
+            </div>
+            <div class="stat-card energy-b">
+                <span class="stat-label">B 운동에너지 ($E_{kB}$)</span>
+                <span id="ekB" class="stat-value">0</span><span style="font-size: 0.8rem">J</span>
+                <span class="stat-label" style="margin-top:5px;">속도: <span id="curVB">0</span> m/s</span>
+            </div>
+        </div>
+
+        <canvas id="simCanvas"></canvas>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('simCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        let objA, objB, isRunning = false, animationId;
+        const PIXELS_PER_METER = 50;
+
+        function resize() {
+            canvas.width = canvas.offsetWidth;
+            canvas.height = canvas.offsetHeight;
+            init();
+        }
+
+        class Ball {
+            constructor(x, y, mass, velo, color) {
+                this.x = x;
+                this.y = y;
+                this.mass = mass;
+                this.velo = velo;
+                this.color = color;
+                this.radius = Math.min(40, 15 + (Math.sqrt(mass) * 2));
+            }
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.fill();
+                ctx.strokeStyle = '#1e293b';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                ctx.fillStyle = "white";
+                ctx.textAlign = "center";
+                ctx.font = "bold 12px sans-serif";
+                ctx.fillText(this.mass + "kg", this.x, this.y + 5);
+            }
+            update() { this.x += this.velo; }
+            getEnergy() { return 0.5 * this.mass * Math.pow(this.velo, 2); }
+        }
+
+        function init() {
+            const mA = parseFloat(document.getElementById('massA').value) || 1;
+            const vA = parseFloat(document.getElementById('veloA').value) || 0;
+            const mB = parseFloat(document.getElementById('massB').value) || 1;
+            const vB = parseFloat(document.getElementById('veloB').value) || 0;
+
+            const centerX = canvas.width / 2;
+            const gap = 3 * PIXELS_PER_METER; 
+
+            objA = new Ball(centerX - (gap / 2), canvas.height / 2, mA, vA, '#ef4444');
+            objB = new Ball(centerX + (gap / 2), canvas.height / 2, mB, vB, '#2563eb');
+            
+            updateStats();
+            drawAll();
+        }
+
+        function drawAll() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.strokeStyle = "#e2e8f0";
+            ctx.setLineDash([5, 5]);
+            ctx.beginPath(); ctx.moveTo(0, canvas.height/2 + 65); ctx.lineTo(canvas.width, canvas.height/2 + 65); ctx.stroke();
+            ctx.setLineDash([]);
+            objA.draw();
+            objB.draw();
+        }
+
+        function updateStats() {
+            const energyA = objA.getEnergy();
+            const energyB = objB.getEnergy();
+            const totalEnergy = energyA + energyB;
+
+            document.getElementById('curVA').innerText = objA.velo.toFixed(2);
+            document.getElementById('curVB').innerText = objB.velo.toFixed(2);
+            document.getElementById('ekA').innerText = Math.round(energyA).toLocaleString();
+            document.getElementById('ekB').innerText = Math.round(energyB).toLocaleString();
+            document.getElementById('totalEk').innerText = Math.round(totalEnergy).toLocaleString();
+        }
+
+        function startSim() {
+            if(isRunning) return;
+            isRunning = true;
+            document.getElementById('status').innerText = "실험 중";
+            animate();
+        }
+
+        function animate() {
+            if(!isRunning) return;
+            drawAll();
+            objA.update();
+            objB.update();
+            updateStats();
+
+            const dist = Math.abs(objA.x - objB.x);
+            if (dist < (objA.radius + objB.radius)) {
+                const m1 = objA.mass, m2 = objB.mass;
+                const v1 = objA.velo, v2 = objB.velo;
+                
+                const newV1 = ((m1 - m2) * v1 + 2 * m2 * v2) / (m1 + m2);
+                const newV2 = (2 * m1 * v1 + (m2 - m1) * v2) / (m1 + m2);
+                
+                objA.velo = newV1;
+                objB.velo = newV2;
+                
+                const overlap = (objA.radius + objB.radius) - dist;
+                objA.x -= overlap / 2;
+                objB.x += overlap / 2;
+                
+                document.getElementById('status').innerText = "충돌 발생!";
+                setTimeout(() => { if(isRunning) document.getElementById('status').innerText = "실험 중"; }, 500);
+            }
+
+            if (objA.x - objA.radius < 0 || objA.x + objA.radius > canvas.width) objA.velo *= -1;
+            if (objB.x - objB.radius < 0 || objB.x + objB.radius > canvas.width) objB.velo *= -1;
+
+            animationId = requestAnimationFrame(animate);
+        }
+
+        function resetSim() {
+            isRunning = false;
+            cancelAnimationFrame(animationId);
+            document.getElementById('status').innerText = "대기 중";
+            init();
+        }
+
+        window.addEventListener('load', resize);
+    </script>
+</body>
+</html>

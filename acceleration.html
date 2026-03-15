@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>물리 실험실: 모든 축 고정 버전</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root { --primary: #2563eb; --bg: #f8fafc; --panel: #ffffff; }
+        body { font-family: 'Pretendard', system-ui; background: var(--bg); display: flex; flex-direction: column; align-items: center; padding: 20px; color: #1e293b; }
+        .container { display: flex; flex-direction: column; gap: 20px; max-width: 1000px; width: 100%; }
+        .top-section { display: flex; gap: 20px; }
+        .control-panel { background: var(--panel); padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); width: 280px; }
+        .main-display { flex: 1; display: flex; flex-direction: column; gap: 15px; }
+        .input-group { margin-bottom: 12px; }
+        label { font-size: 0.85rem; font-weight: 600; display: block; margin-bottom: 5px; }
+        input[type="number"] { width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; }
+        .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+        .stat-card { background: var(--panel); padding: 10px; border-radius: 8px; border-left: 4px solid var(--primary); box-shadow: 0 2px 4px rgba(0,0,0,0.05); text-align: center; }
+        .stat-label { font-size: 0.7rem; color: #64748b; display: block; }
+        .stat-value { font-size: 1rem; font-weight: 700; }
+        canvas#simCanvas { background: #fff; border-radius: 12px; border: 1px solid #e2e8f0; height: 150px; }
+        .graph-section { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; background: white; padding: 15px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .graph-container { height: 250px; }
+        .btn-group { display: flex; gap: 10px; margin-top: 10px; }
+        button { flex: 1; padding: 10px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; }
+        .btn-start { background: var(--primary); color: white; }
+        .btn-reset { background: #64748b; color: white; }
+    </style>
+</head>
+<body>
+
+    <h2 style="margin-bottom: 20px;">등가속도 운동 시뮬레이터</h2>
+
+    <div class="container">
+        <div class="top-section">
+            <div class="control-panel">
+                <div class="input-group">
+                    <label>실험 시간 설정 (초)</label>
+                    <input type="number" id="maxTimeInput" value="20" min="5">
+                </div>
+                <div class="input-group">
+                    <label>가속도 (a)</label>
+                    <input type="number" id="inputA" value="1.5" step="0.5">
+                </div>
+                <div class="input-group">
+                    <label>초기 속도 (v)</label>
+                    <input type="number" id="inputV0" value="0" step="1">
+                </div>
+                <div class="input-group">
+                    <label>물체 질량 (m)</label>
+                    <input type="number" id="inputM" value="10" min="1">
+                </div>
+                <div class="btn-group">
+                    <button class="btn-start" id="startBtn" onclick="toggleSim()">시작</button>
+                    <button class="btn-reset" onclick="resetSim()">초기화</button>
+                </div>
+            </div>
+
+            <div class="main-display">
+                <div class="stats-grid">
+                    <div class="stat-card"><span class="stat-label">속도(v)</span><span id="valV" class="stat-value">0.0</span></div>
+                    <div class="stat-card"><span class="stat-label">거리(s)</span><span id="valS" class="stat-value">0.0</span></div>
+                    <div class="stat-card" style="border-left-color: #f59e0b;"><span class="stat-label">시간(t)</span><span id="valT" class="stat-value">0.0</span></div>
+                    <div class="stat-card" style="border-left-color: #ef4444;"><span class="stat-label">에너지(Ek)</span><span id="valEk" class="stat-value">0</span></div>
+                </div>
+                <canvas id="simCanvas" width="700" height="150"></canvas>
+            </div>
+        </div>
+
+        <div class="graph-section">
+            <div class="graph-container"><canvas id="accelChart"></canvas></div>
+            <div class="graph-container"><canvas id="veloChart"></canvas></div>
+            <div class="graph-container"><canvas id="posChart"></canvas></div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('simCanvas');
+        const ctx = canvas.getContext('2d');
+        let posX = 50, velocity = 0, accel = 0, mass = 10, time = 0;
+        let isRunning = false, animationId;
+        let maxTime = 20;
+
+        // 그래프 생성 함수 (X축 고정 포함)
+        function createFixedChart(id, label, color, yLabel, fixedYZero = false) {
+            return new Chart(document.getElementById(id), {
+                type: 'line',
+                data: { labels: [], datasets: [{ label: label, data: [], borderColor: color, borderWidth: 2, fill: false }] },
+                options: {
+                    responsive: true, maintainAspectRatio: false, animation: false,
+                    elements: { point: { radius: 0 } },
+                    scales: {
+                        x: { 
+                            type: 'linear', // 선형 축으로 설정하여 범위 고정 가능하게 함
+                            title: { display: true, text: '시간(s)' },
+                            min: 0, 
+                            max: maxTime 
+                        },
+                        y: { 
+                            title: { display: true, text: yLabel },
+                            beginAtZero: fixedYZero,
+                            min: fixedYZero ? 0 : undefined
+                        }
+                    }
+                }
+            });
+        }
+
+        let aChart = createFixedChart('accelChart', '가속도(a)', '#64748b', 'm/s²');
+        let vChart = createFixedChart('veloChart', '속도(v)', '#2563eb', 'm/s');
+        let sChart = createFixedChart('posChart', '위치(s)', '#10b981', 'm', true);
+
+        function updatePhysics() {
+            if (!isRunning) return;
+
+            accel = parseFloat(document.getElementById('inputA').value) || 0;
+            mass = parseFloat(document.getElementById('inputM').value) || 1;
+            const dt = 1/60;
+            time += dt;
+            velocity += accel * dt;
+            posX += velocity;
+
+            document.getElementById('valV').innerText = velocity.toFixed(1);
+            document.getElementById('valS').innerText = (posX - 50).toFixed(1);
+            document.getElementById('valT').innerText = time.toFixed(1);
+            document.getElementById('valEk').innerText = Math.round(0.5 * mass * velocity**2).toLocaleString();
+
+            // 설정된 최대 시간에 도달하면 자동 정지
+            if (time >= maxTime) {
+                isRunning = false;
+                document.getElementById('startBtn').innerText = "종료";
+                cancelAnimationFrame(animationId);
+            }
+
+            // 그래프 업데이트 (0.1초 간격)
+            if (Math.round(time * 60) % 6 === 0) {
+                // x축 데이터를 {x: 시간, y: 값} 형태로 전달 (linear scale 대응)
+                aChart.data.datasets[0].data.push({x: time, y: accel});
+                vChart.data.datasets[0].data.push({x: time, y: velocity});
+                sChart.data.datasets[0].data.push({x: time, y: posX - 50});
+                
+                aChart.update(); vChart.update(); sChart.update();
+            }
+
+            draw();
+            if (isRunning) animationId = requestAnimationFrame(updatePhysics);
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.beginPath(); ctx.moveTo(0, 120); ctx.lineTo(canvas.width, 120); ctx.strokeStyle = "#cbd5e1"; ctx.stroke();
+            const radius = 10 + (mass * 0.3);
+            ctx.beginPath(); ctx.arc(posX % canvas.width, 120 - radius, radius, 0, Math.PI * 2);
+            ctx.fillStyle = "#2563eb"; ctx.fill();
+        }
+
+        function toggleSim() {
+            if (time >= maxTime) resetSim(); // 시간이 다 찼으면 리셋 후 시작
+
+            if (!isRunning) {
+                if (time === 0) {
+                    velocity = parseFloat(document.getElementById('inputV0').value) || 0;
+                    // 시작 시점의 maxTime 설정 반영
+                    maxTime = parseFloat(document.getElementById('maxTimeInput').value) || 20;
+                    [aChart, vChart, sChart].forEach(c => {
+                        c.options.scales.x.max = maxTime;
+                        c.update();
+                    });
+                }
+                isRunning = true;
+                document.getElementById('startBtn').innerText = "일시정지";
+                updatePhysics();
+            } else {
+                isRunning = false;
+                document.getElementById('startBtn').innerText = "재개";
+                cancelAnimationFrame(animationId);
+            }
+        }
+
+        function resetSim() {
+            isRunning = false;
+            cancelAnimationFrame(animationId);
+            time = 0; posX = 50; velocity = parseFloat(document.getElementById('inputV0').value) || 0;
+            document.getElementById('startBtn').innerText = "시작";
+            [aChart, vChart, sChart].forEach(c => {
+                c.data.datasets[0].data = [];
+                c.update();
+            });
+            draw();
+        }
+        draw();
+    </script>
+</body>
+</html>
